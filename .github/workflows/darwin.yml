@@ -13,6 +13,11 @@ on:
       tag:
         description: Release tag to build and attach the gems to (e.g. v26.12.1.0.1)
         required: true
+      platforms:
+        description: Which gems to build (rebuild only the missing ones; an attached gem is never replaced)
+        type: choice
+        options: [all, arm64, x86_64]
+        default: all
 
 permissions: {}
 
@@ -21,13 +26,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: arm64
-            runner: macos-15
-          - platform: x86_64
-            runner: macos-15-intel
+        platform: ${{ fromJSON(inputs.platforms == 'all' && '["arm64", "x86_64"]' || format('["{0}"]', inputs.platforms)) }}
     name: Build (darwin) (${{ matrix.platform }})
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.platform == 'arm64' && 'macos-15' || 'macos-15-intel' }}
     timeout-minutes: 355
     permissions:
       contents: write # attach gems to the release
@@ -112,4 +113,4 @@ jobs:
             gh release view "${{ inputs.tag }}" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 && break
             sleep 60
           done
-          gh release upload "${{ inputs.tag }}" "$gem" "$gem.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "${{ inputs.tag }}" "$gem" "$gem.sha256" --repo "$GITHUB_REPOSITORY"
