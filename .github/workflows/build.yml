@@ -1,7 +1,13 @@
 name: Build
+# Linux builds take about two hours each, so branch pushes don't run them;
+# main, pull requests and release tags do.
 on:
-  - pull_request
-  - push
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
 
 jobs:
   rubocop:
@@ -293,10 +299,12 @@ jobs:
         run: docker exec -w "${PWD}" ${{ steps.container.outputs.id }} gem install --verbose pkg/libv8-node-${{ needs.build-ruby.outputs.GEM_VERSION }}.gem
       - name: Test with mini_racer
         run: |
-          git clone https://github.com/rubyjs/mini_racer.git test/mini_racer --depth 1
+          git clone https://github.com/DRM51/mini_racer.git test/mini_racer --depth 1 --branch v8-14
           cd test/mini_racer
           ruby -i -ne '$_ =~ /^\s+LIBV8_NODE_VERSION/ ? print("  LIBV8_NODE_VERSION = \"${{ needs.build-ruby.outputs.GEM_VERSION }}\"\n") : print' lib/mini_racer/version.rb
           ruby -i -ne '$_ =~ /spec.required_ruby_version/ ? "" : print' mini_racer.gemspec
+          # use the libv8-node gem just built, not the published one
+          ruby -i -0pe '$_ = $_.sub(/^source .https:\/\/drm51\.github\.io\/gems. do\n.*?^end\n/m, "")' Gemfile
           docker exec -w "${PWD}" ${{ steps.container.outputs.id }} bundle install
           docker exec -w "${PWD}" ${{ steps.container.outputs.id }} bundle exec rake compile
           docker exec -w "${PWD}" ${{ steps.container.outputs.id }} bundle exec rake test
@@ -371,10 +379,37 @@ jobs:
         run: docker exec -w "${PWD}" ${{ steps.container.outputs.id }} gem install pkg/libv8-node-${{ needs.build-linux.outputs.GEM_VERSION }}-${{ steps.set-metadata.outputs.GEM_PLATFORM }}.gem
       - name: Test with mini_racer
         run: |
-          git clone https://github.com/rubyjs/mini_racer.git test/mini_racer --depth 1
+          git clone https://github.com/DRM51/mini_racer.git test/mini_racer --depth 1 --branch v8-14
           cd test/mini_racer
           ruby -i -ne '$_ =~ /^\s+LIBV8_NODE_VERSION/ ? print("  LIBV8_NODE_VERSION = \"${{ needs.build-linux.outputs.GEM_VERSION }}\"\n") : print' lib/mini_racer/version.rb
           ruby -i -ne '$_ =~ /spec.required_ruby_version/ ? "" : print' mini_racer.gemspec
+          # use the libv8-node gem just built, not the published one
+          ruby -i -0pe '$_ = $_.sub(/^source .https:\/\/drm51\.github\.io\/gems. do\n.*?^end\n/m, "")' Gemfile
           docker exec -w "${PWD}" ${{ steps.container.outputs.id }} bundle install
           docker exec -w "${PWD}" ${{ steps.container.outputs.id }} bundle exec rake compile
           docker exec -w "${PWD}" ${{ steps.container.outputs.id }} bundle exec rake test
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - test-ruby
+      - test-linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # create the release
+    steps:
+      - name: Download gems
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gem-*
+          path: pkg
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd pkg
+          sha256sum *.gem | tee SHA256SUMS
+          gh release create "${GITHUB_REF_NAME}" *.gem SHA256SUMS \
+            --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" \
+            --notes "libv8-node ${GITHUB_REF_NAME#v}. Install from https://drm51.github.io/gems"
