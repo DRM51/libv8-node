@@ -72,5 +72,27 @@ for lib in libv8_monolith.a; do
     fi
 done
 
+# Since Node 24, V8's Temporal is implemented by Rust crates (temporal_rs)
+# that Node builds into a separate static library. Without them the
+# monolith still links, because Ruby extensions allow undefined symbols,
+# but Temporal crashes at run time. Merge them in after stripping: Apple's
+# strip drops the .llvm.<hash> suffixes that keep Rust's per-codegen-unit
+# symbols apart, which turns them into duplicates.
+crates="$(find "${BASEDIR}/out/${BUILDTYPE}" -name libnode_crates.a ! -path '*/deps/*' | head -n 1)"
+if [ -n "${crates}" ]; then
+    monolith="${top}/vendor/v8/${RUBY_TARGET_PLATFORM}/libv8/obj/libv8_monolith.a"
+    echo "${crates} -> ${monolith}"
+    case "${RUBY_TARGET_PLATFORM}" in
+        *-darwin)
+            /usr/bin/libtool -static -no_warning_for_no_symbols -o "${monolith}.merged" "${monolith}" "${crates}"
+            ;;
+        *)
+            printf 'create %s\naddlib %s\naddlib %s\nsave\nend\n' \
+                "${monolith}.merged" "${monolith}" "${crates}" | "${AR}" -M
+            ;;
+    esac
+    mv -f "${monolith}.merged" "${monolith}"
+fi
+
 mkdir -p "${top}/ext/libv8-node"
 echo '--- !ruby/object:Libv8::Node::Location::Vendor {}' > "${top}/ext/libv8-node/.location.yml"
