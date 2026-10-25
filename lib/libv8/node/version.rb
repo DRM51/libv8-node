@@ -4,7 +4,7 @@ module Libv8
 end
 
 module Libv8::Node
-  VERSION = '24.12.0.1'
-  NODE_VERSION = '24.12.0'
-  LIBV8_VERSION = '13.6.233.17' # from src/node-.../deps/v8/include/v8-version.h
+  VERSION = '26.12.1.0'
+  NODE_VERSION = '26.12.1'
+  LIBV8_VERSION = '14.6.202.34' # from src/node-.../deps/v8/include/v8-version.h
 end
