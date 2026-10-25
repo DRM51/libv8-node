@@ -1,0 +1,106 @@
+name: Darwin release gems
+
+# Builds the macOS gems for an existing release tag on GitHub's standard
+# macOS runners, which are free for public repositories (the larger runners
+# in manual.yml are billed). A build can take hours on these, so ccache
+# keeps the compiled objects: a run that hits the time limit saves its
+# cache, and running the workflow again picks up from there.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach the gems to (e.g. v26.12.1.0.1)
+        required: true
+
+permissions: {}
+
+jobs:
+  build-darwin:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: arm64
+            runner: macos-15
+          - platform: x86_64
+            runner: macos-15-intel
+    name: Build (darwin) (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 355
+    permissions:
+      contents: write # attach gems to the release
+    env:
+      TARGET_PLATFORM: ${{ matrix.platform }}-darwin
+      RUBY_TARGET_PLATFORM: ${{ matrix.platform }}-darwin
+      CC: ccache clang
+      CXX: ccache clang++
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 4G
+      CCACHE_SLOPPINESS: time_macros,include_file_mtime,include_file_ctime
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: Install ccache
+        run: brew install ccache
+      - name: Set metadata
+        id: meta
+        run: |
+          echo "NODE_VERSION=$(./libexec/metadata node_version)" >> "$GITHUB_OUTPUT"
+          echo "GEM_VERSION=$(./libexec/metadata gem_version)" >> "$GITHUB_OUTPUT"
+          test "v$(./libexec/metadata gem_version)" = "${{ inputs.tag }}"
+      - name: Restore ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.platform }}-darwin-node-${{ steps.meta.outputs.NODE_VERSION }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ matrix.platform }}-darwin-node-${{ steps.meta.outputs.NODE_VERSION }}-
+      - name: Download and extract Node.js
+        run: |
+          ./libexec/download-node ${{ steps.meta.outputs.NODE_VERSION }}
+          ./libexec/extract-node ${{ steps.meta.outputs.NODE_VERSION }}
+          ./libexec/metadata libv8_version_h | diff - <(./libexec/metadata libv8_version)
+      - name: Build V8
+        # stop short of the job limit so the cache still gets saved
+        timeout-minutes: 320
+        run: ./libexec/build-libv8 ${{ steps.meta.outputs.NODE_VERSION }}
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.platform }}-darwin-node-${{ steps.meta.outputs.NODE_VERSION }}-${{ github.run_id }}
+      - name: Build monolith and gem
+        run: |
+          ccache --show-stats || true
+          ./libexec/build-monolith ${{ steps.meta.outputs.NODE_VERSION }}
+          ./libexec/inject-libv8 ${{ steps.meta.outputs.NODE_VERSION }}
+          bundle exec rake binary
+      - name: Upload gem artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gem-${{ steps.meta.outputs.GEM_VERSION }}-${{ matrix.platform }}-darwin
+          path: pkg
+      - name: Test with mini_racer
+        run: |
+          gem install --local pkg/libv8-node-${{ steps.meta.outputs.GEM_VERSION }}-${{ matrix.platform }}-darwin.gem
+          git clone https://github.com/DRM51/mini_racer.git test/mini_racer --depth 1 --branch v8-14
+          cd test/mini_racer
+          # use the libv8-node gem just built, not the published one
+          ruby -i -0pe '$_ = $_.sub(/^source .https:\/\/drm51\.github\.io\/gems. do\n.*?^end\n/m, "")' Gemfile
+          bundle install
+          bundle exec rake compile
+          bundle exec rake test
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gem=pkg/libv8-node-${{ steps.meta.outputs.GEM_VERSION }}-${{ matrix.platform }}-darwin.gem
+          shasum -a 256 "$gem" | sed 's| pkg/| |' > "$gem.sha256"
+          gh release upload "${{ inputs.tag }}" "$gem" "$gem.sha256" --repo "$GITHUB_REPOSITORY" --clobber
