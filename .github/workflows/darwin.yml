@@ -1,10 +1,12 @@
 name: Darwin release gems
 
-# Builds the macOS gems for an existing release tag on GitHub's standard
-# macOS runners, which are free for public repositories (the larger runners
-# in manual.yml are billed). A build can take hours on these, so ccache
+# Builds the macOS gems for a release tag on GitHub's standard macOS
+# runners, which are free for public repositories (the larger runners in
+# manual.yml are billed). A build takes over two hours on these, so ccache
 # keeps the compiled objects: a run that hits the time limit saves its
-# cache, and running the workflow again picks up from there.
+# cache, and running the workflow again picks up from there. It can be
+# started as soon as the tag is pushed; it waits for build.yml to create
+# the release before attaching the gems.
 on:
   workflow_dispatch:
     inputs:
@@ -32,8 +34,6 @@ jobs:
     env:
       TARGET_PLATFORM: ${{ matrix.platform }}-darwin
       RUBY_TARGET_PLATFORM: ${{ matrix.platform }}-darwin
-      CC: ccache clang
-      CXX: ccache clang++
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 4G
       CCACHE_SLOPPINESS: time_macros,include_file_mtime,include_file_ctime
@@ -47,7 +47,11 @@ jobs:
           ruby-version: "3.4"
           bundler-cache: true
       - name: Install ccache
-        run: brew install ccache
+        # libexec/platform sets CC to "clang -arch ...", so ccache goes in
+        # through its clang/clang++ symlinks on PATH rather than through CC
+        run: |
+          brew install ccache
+          echo "$(brew --prefix ccache)/libexec" >> "$GITHUB_PATH"
       - name: Set metadata
         id: meta
         run: |
@@ -103,4 +107,9 @@ jobs:
         run: |
           gem=pkg/libv8-node-${{ steps.meta.outputs.GEM_VERSION }}-${{ matrix.platform }}-darwin.gem
           shasum -a 256 "$gem" | sed 's| pkg/| |' > "$gem.sha256"
+          # build.yml creates the release once the Linux gems are tested
+          for _ in $(seq 120); do
+            gh release view "${{ inputs.tag }}" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 && break
+            sleep 60
+          done
           gh release upload "${{ inputs.tag }}" "$gem" "$gem.sha256" --repo "$GITHUB_REPOSITORY" --clobber
