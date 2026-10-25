@@ -38,3 +38,12 @@ Gemspec/RequiredRubyVersion:
 
 Style/PerlBackrefs:
   Enabled: false
+
+# rubocop 1.92 (new cop): these files reopen `module Libv8` around their class
+Style/OneClassPerFile:
+  Enabled: false
+
+# the Vagrantfile aligns its config values in columns
+Layout/ExtraSpacing:
+  Exclude:
+    - Vagrantfile
