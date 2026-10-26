@@ -12,7 +12,7 @@ on:
 # The released mini_racer the gems are tested with: a fixed tag, so a test
 # run can be reproduced. Bump it with each mini_racer release.
 env:
-  MINI_RACER_REF: v14.6.202.34.1
+  MINI_RACER_REF: v14.6.202.34.3
 
 jobs:
   rubocop:
@@ -155,9 +155,12 @@ jobs:
       - name: Start container
         id: container
         run: |
+          # bookworm (glibc 2.36): a library built on trixie needs glibc 2.38
+          # and GCC 14's libstdc++, which bookworm, Ubuntu 22.04, RHEL 9 and
+          # Amazon Linux 2023 don't have
           case ${{ matrix.libc }} in
             gnu)
-              echo 'ruby:3.4-trixie'
+              echo 'ruby:3.4-bookworm'
               ;;
             musl)
               echo 'ruby:3.4-alpine'
@@ -168,7 +171,9 @@ jobs:
           # use native platform
           platform="linux/${{ matrix.platform }}"
 
-          docker run --rm -d -v "${PWD}":"${PWD}" -w "${PWD}" --platform "${platform}" -e RUBY_TARGET_PLATFORM=${{ steps.platform.outputs.ruby_target_platform }} -e TARGET_PLATFORM=${{ steps.platform.outputs.target_platform }} $(cat container_image) /bin/sleep 64d | tee container_id
+          compilers=""
+          if [ "${{ matrix.libc }}" = gnu ]; then compilers="-e CC=clang-19 -e CXX=clang++-19"; fi
+          docker run --rm -d -v "${PWD}":"${PWD}" -w "${PWD}" --platform "${platform}" ${compilers} -e RUBY_TARGET_PLATFORM=${{ steps.platform.outputs.ruby_target_platform }} -e TARGET_PLATFORM=${{ steps.platform.outputs.target_platform }} $(cat container_image) /bin/sleep 64d | tee container_id
           docker exec -w "${PWD}" $(cat container_id) uname -a
           echo "id=$(cat container_id)" >> $GITHUB_OUTPUT
       - name: Install Alpine system dependencies
@@ -180,7 +185,19 @@ jobs:
         if: ${{ matrix.libc == 'gnu' }}
         run: |
           docker exec -w "${PWD}" ${{ steps.container.outputs.id }} apt-get update
-          docker exec -w "${PWD}" ${{ steps.container.outputs.id }} apt-get install -y cmake clang ccache
+          docker exec -w "${PWD}" ${{ steps.container.outputs.id }} apt-get install -y cmake ccache curl gpg
+          # Node 26 needs clang >= 19.1 (or GCC >= 13.2); bookworm has clang
+          # 14 and GCC 12, so clang comes from LLVM's apt repository, its
+          # signing key checked against a pinned fingerprint
+          docker exec -w "${PWD}" ${{ steps.container.outputs.id }} bash -euc '
+            curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /tmp/llvm.asc
+            fpr=$(gpg --show-keys --with-colons /tmp/llvm.asc | awk -F: "/^fpr/ {print \$10; exit}")
+            test "$fpr" = 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
+            gpg --dearmor -o /usr/share/keyrings/llvm.gpg /tmp/llvm.asc
+            echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-19 main" > /etc/apt/sources.list.d/llvm.list
+            apt-get update
+            apt-get install -y clang-19
+            clang-19 --version'
       - name: Update Rubygems and Bundler
         run: |
           docker exec -w "${PWD}" ${{ steps.container.outputs.id }} gem update --system
@@ -221,6 +238,14 @@ jobs:
       - name: Inject V8
         run: |
             docker exec -w "${PWD}" ${{ steps.container.outputs.id }} ./libexec/inject-libv8 ${{ steps.set-metadata.outputs.NODE_VERSION }}
+      - name: Check the glibc it needs
+        if: ${{ matrix.libc == 'gnu' }}
+        run: |
+          # glibc 2.38 headers redirect strtol & co to __isoc23_* and add
+          # strlcpy/strlcat; either would make the gem unloadable on bookworm
+          lib=$(find vendor/v8 -name libv8_monolith.a | head -1)
+          docker exec -w "${PWD}" ${{ steps.container.outputs.id }} bash -c "nm -u --no-sort '$lib' 2>/dev/null | grep -E ' (__isoc23_|strlcpy|strlcat)' | sort -u" | tee too_new
+          test ! -s too_new
       - name: Test V8 in C++
         run: |
             docker exec -w "${PWD}" ${{ steps.container.outputs.id }} bash -c "cd test/gtest && cmake -S . -B build && cd build && cmake --build . && ctest"
@@ -351,11 +376,15 @@ jobs:
       - name: Start container
         id: container
         run: |
-          case ${{ matrix.libc }} in
-            gnu)
+          # the oldest Debian the gems support; ruby 4.0 runs on trixie
+          case ${{ matrix.libc }}-${{ matrix.version }} in
+            gnu-4.0)
               echo 'ruby:${{ matrix.version }}'
               ;;
-            musl)
+            gnu-*)
+              echo 'ruby:${{ matrix.version }}-bookworm'
+              ;;
+            musl-*)
               echo 'ruby:${{ matrix.version }}-alpine'
               ;;
           esac | tee container_image

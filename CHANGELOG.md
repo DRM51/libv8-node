@@ -1,5 +1,13 @@
 # Changelog
 
+## 14.6.202.34.2 - 26-10-2026
+
+- Linux (glibc) gems are built on Debian bookworm with clang 19 instead of
+  trixie with GCC 14, so they load on glibc 2.36 and with older libstdc++:
+  Debian bookworm, Ubuntu 22.04, RHEL 9, Amazon Linux 2023. The trixie-built
+  14.6.202.34.1 needed glibc 2.38. CI now fails a build that needs a newer
+  glibc, and tests the gems on bookworm.
+
 ## 14.6.202.34.1 - 25-10-2026
 
 - Renamed drm51_libv8_node, so DRM51's builds can't be mistaken for upstream
