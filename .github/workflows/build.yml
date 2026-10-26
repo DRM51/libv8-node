@@ -12,7 +12,7 @@ on:
 # The released mini_racer the gems are tested with: a fixed tag, so a test
 # run can be reproduced. Bump it with each mini_racer release.
 env:
-  MINI_RACER_REF: v0.22.2.4
+  MINI_RACER_REF: v14.6.202.34.1
 
 jobs:
   rubocop:
@@ -301,7 +301,7 @@ jobs:
           name: gem-${{ needs.build-ruby.outputs.GEM_VERSION }}-ruby
           path: pkg
       - name: Install gem
-        run: docker exec -w "${PWD}" ${{ steps.container.outputs.id }} gem install --verbose pkg/libv8-node-${{ needs.build-ruby.outputs.GEM_VERSION }}.gem
+        run: docker exec -w "${PWD}" ${{ steps.container.outputs.id }} gem install --verbose pkg/drm51_libv8_node-${{ needs.build-ruby.outputs.GEM_VERSION }}.gem
       - name: Test with mini_racer
         run: |
           git clone https://github.com/DRM51/mini_racer.git test/mini_racer --depth 1 --branch "$MINI_RACER_REF"
@@ -381,7 +381,7 @@ jobs:
           name: gem-${{ needs.build-linux.outputs.GEM_VERSION }}-${{ steps.set-metadata.outputs.GEM_PLATFORM }}
           path: pkg
       - name: Install gem
-        run: docker exec -w "${PWD}" ${{ steps.container.outputs.id }} gem install pkg/libv8-node-${{ needs.build-linux.outputs.GEM_VERSION }}-${{ steps.set-metadata.outputs.GEM_PLATFORM }}.gem
+        run: docker exec -w "${PWD}" ${{ steps.container.outputs.id }} gem install pkg/drm51_libv8_node-${{ needs.build-linux.outputs.GEM_VERSION }}-${{ steps.set-metadata.outputs.GEM_PLATFORM }}.gem
       - name: Test with mini_racer
         run: |
           git clone https://github.com/DRM51/mini_racer.git test/mini_racer --depth 1 --branch "$MINI_RACER_REF"
@@ -417,4 +417,4 @@ jobs:
           sha256sum *.gem | tee SHA256SUMS
           gh release create "${GITHUB_REF_NAME}" *.gem SHA256SUMS \
             --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" \
-            --notes "libv8-node ${GITHUB_REF_NAME#v}. Install from https://drm51.github.io/gems"
+            --notes "drm51_libv8_node ${GITHUB_REF_NAME#v}. Install from https://drm51.github.io/gems"

@@ -47,7 +47,7 @@ cd "${BASEDIR}"
 bundle exec rake binary
 
 # Test that the gem can be installed and used.
-gem install pkg/libv8-node-"$GEM_VERSION"-"$GEM_PLATFORM".gem
+gem install pkg/drm51_libv8_node-"$GEM_VERSION"-"$GEM_PLATFORM".gem
 
 rm -rf test/mini_racer
 git clone https://github.com/rubyjs/mini_racer.git test/mini_racer --depth 1

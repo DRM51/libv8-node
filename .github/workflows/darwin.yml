@@ -22,7 +22,7 @@ on:
 # The released mini_racer the gems are tested with: a fixed tag, so a test
 # run can be reproduced. Bump it with each mini_racer release.
 env:
-  MINI_RACER_REF: v0.22.2.4
+  MINI_RACER_REF: v14.6.202.34.1
 
 permissions: {}
 
@@ -99,7 +99,7 @@ jobs:
           path: pkg
       - name: Test with mini_racer
         run: |
-          gem install --local pkg/libv8-node-${{ steps.meta.outputs.GEM_VERSION }}-${{ matrix.platform }}-darwin.gem
+          gem install --local pkg/drm51_libv8_node-${{ steps.meta.outputs.GEM_VERSION }}-${{ matrix.platform }}-darwin.gem
           git clone https://github.com/DRM51/mini_racer.git test/mini_racer --depth 1 --branch "$MINI_RACER_REF"
           cd test/mini_racer
           # use the libv8-node gem just built, not the published one
@@ -111,7 +111,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gem=pkg/libv8-node-${{ steps.meta.outputs.GEM_VERSION }}-${{ matrix.platform }}-darwin.gem
+          gem=pkg/drm51_libv8_node-${{ steps.meta.outputs.GEM_VERSION }}-${{ matrix.platform }}-darwin.gem
           shasum -a 256 "$gem" | sed 's| pkg/| |' > "$gem.sha256"
           # build.yml creates the release once the Linux gems are tested
           for _ in $(seq 120); do
