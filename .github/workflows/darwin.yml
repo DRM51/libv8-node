@@ -113,8 +113,10 @@ jobs:
         run: |
           gem=pkg/drm51_libv8_node-${{ steps.meta.outputs.GEM_VERSION }}-${{ matrix.platform }}-darwin.gem
           shasum -a 256 "$gem" | sed 's| pkg/| |' > "$gem.sha256"
-          # build.yml creates the release once the Linux gems are tested
-          for _ in $(seq 120); do
+          # build.yml publishes the release once the Linux gems are tested,
+          # about 2.5 h after the tag; with a warm ccache this job gets here
+          # in minutes, so wait up to 5 h (the job's limit is 355 min)
+          for _ in $(seq 300); do
             gh release view "${{ inputs.tag }}" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 && break
             sleep 60
           done
